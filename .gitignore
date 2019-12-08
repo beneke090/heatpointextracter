@@ -1,0 +1,6 @@
+#ignore automated created files
+__pycache__/
+help/
+i18n/
+scripts/
+test/

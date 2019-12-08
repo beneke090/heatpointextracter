@@ -1,0 +1,2 @@
+export QGIS_PLUGINPATH=/home/ben/Documents/SelectiveTopic_Localizer/plugin_dir/
+qgis
