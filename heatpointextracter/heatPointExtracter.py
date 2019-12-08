@@ -21,10 +21,10 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
-from qgis.core import QgsProject, QgsCoordinateTransform
+from qgis.PyQt.QtWidgets import QAction,QTableWidgetItem
+from qgis.core import QgsProject, QgsCoordinateTransform, QgsVectorLayer, QgsFeature
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -185,36 +185,65 @@ class HeatMap_PointExtracter:
         self.layerstor.pnktlyr = QgsProject.instance().mapLayersByName(self.dlg.pnktlyr_cb.currentText())[0]
         dest_crs = QgsProject.instance().crs()
         src_crs = self.layerstor.pnktlyr.crs()
-        xform = QgsCoordinateTransform(srs_crs, dest_crs)
-        self.layerstor.pnktlyr.setCrs(QgsProject.instance().crs())
+        xform = QgsCoordinateTransform(src_crs, dest_crs, QgsProject.instance())
+        i = 1
+        #templayer with fields
+        self.layerstor.temppnktlyr = QgsVectorLayer('Point?crs=%s' % dest_crs.authid(), 'temp', 'memory')
+        tempprovider = self.layerstor.temppnktlyr.dataProvider()
+        tempprovider.addAttributes(self.layerstor.pnktlyr.fields())
+        self.layerstor.temppnktlyr.updateFields()
+        self.layerstor.temppnktlyr.startEditing()
+        i=0
+        for feature in self.layerstor.pnktlyr.getFeatures():
+            g = feature.geometry()
+            g.transform(xform)
+            feature.setGeometry(g)
+            nwFeature = QgsFeature()
+            nwFeature.setAttributes(feature.attributes())
+            nwFeature.setGeometry(g)
+            self.layerstor.temppnktlyr.addFeature(nwFeature)
+            
+        self.layerstor.temppnktlyr.commitChanges()
+        self.layerstor.temppnktlyr.updateExtents()
+        print(self.layerstor.temppnktlyr.extent())
+        print(len([f for f in self.layerstor.temppnktlyr.getFeatures()]))
+        
+        #print(self.iface.mapCanvas().extent())
         self.dlg.flds_cb.currentIndexChanged.disconnect()
         self.dlg.flds_cb.clear()
-        self.dlg.flds_cb.addItems([""]+[field.name() for field in self.layerstor.pnktlyr.fields()])
+        self.dlg.flds_cb.addItems([""]+[field.name() for field in self.layerstor.temppnktlyr.fields()])
         self.dlg.flds_cb.currentIndexChanged.connect(self.loadAttributes)
+        QgsProject.instance().addMapLayer(self.layerstor.temppnktlyr)
 
 
     def loadAttributes(self):
-        print(QgsProject.instance().crs().srsid())
-        print(QgsProject.instance().crs().description())
-        print(self.layerstor.pnktlyr.crs().srsid())
-        print(self.layerstor.pnktlyr.crs().description())
         field = self.dlg.flds_cb.currentText()
         fieldslist = []
         currentExtent = self.iface.mapCanvas().extent()
 
         print(self.iface.mapCanvas().extent())
         i = 0
-        for feature in self.layerstor.pnktlyr.getFeatures():
+        for feature in self.layerstor.temppnktlyr.getFeatures():
             i=i+1
             if currentExtent.contains(feature.geometry().asPoint()):
-                print(i)
+                if feature[field] not in fieldslist:
+                    fieldslist.append(feature[field])
                 i = i+1
-            print(feature.geometry().asPoint())
-            if i == 10:
-                break
+            # if i == 30:
+            #     break
             # if feature[field] not in fieldslist:
             #     fieldslist.append(feature[field])
         print(fieldslist)
+        fieldslist.sort()
+        self.dlg.attribute_tw.setColumnCount(2)
+        self.dlg.attribute_tw.setRowCount(len(fieldslist)+1)
+        self.dlg.attribute_tw.setItem(0,0,QTableWidgetItem("Attribute"))
+        for r, attr in enumerate(fieldslist):
+            itm = QTableWidgetItem(attr)
+            itm.setFlags(Qt.ItemIsEnabled)
+            self.dlg.attribute_tw.setItem(r+1,0,itm)
+            self.dlg.attribute_tw.setItem(r+1,1,QTableWidgetItem("1"))
+        
 
     def run(self):
         """Run method that performs all the real work"""
@@ -226,7 +255,7 @@ class HeatMap_PointExtracter:
             self.first_start = False
             self.dlg = HeatMap_PointExtracterDialog()
 
-        
+        self.dlg.title.setText("Git import_function")
 
         layerlist = QgsProject.instance().mapLayers().values()
         self.dlg.pnktlyr_cb.clear()
