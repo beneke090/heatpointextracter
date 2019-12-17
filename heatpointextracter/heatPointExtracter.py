@@ -24,7 +24,7 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction,QTableWidgetItem
-from qgis.core import QgsProject, QgsCoordinateTransform, QgsVectorLayer, QgsFeature
+from qgis.core import QgsProject, QgsCoordinateTransform, QgsVectorLayer, QgsFeature, QgsPointXY, QgsGeometry
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -183,12 +183,12 @@ class HeatMap_PointExtracter:
 
     def loadColumn(self):
         self.layerstor.pnktlyr = QgsProject.instance().mapLayersByName(self.dlg.pnktlyr_cb.currentText())[0]
-        dest_crs = QgsProject.instance().crs()
-        src_crs = self.layerstor.pnktlyr.crs()
-        xform = QgsCoordinateTransform(src_crs, dest_crs, QgsProject.instance())
+        self.crsstor.dest_crs = QgsProject.instance().crs()
+        self.crsstor.src_crs = self.layerstor.pnktlyr.crs()
+        xform = QgsCoordinateTransform(self.crsstor.src_crs, self.crsstor.dest_crs, QgsProject.instance())
         i = 1
         #templayer with fields
-        self.layerstor.temppnktlyr = QgsVectorLayer('Point?crs=%s' % dest_crs.authid(), 'temp', 'memory')
+        self.layerstor.temppnktlyr = QgsVectorLayer('Point?crs=%s' % self.crsstor.dest_crs.authid(), 'temp', 'memory')
         tempprovider = self.layerstor.temppnktlyr.dataProvider()
         tempprovider.addAttributes(self.layerstor.pnktlyr.fields())
         self.layerstor.temppnktlyr.updateFields()
@@ -213,14 +213,36 @@ class HeatMap_PointExtracter:
         self.dlg.flds_cb.clear()
         self.dlg.flds_cb.addItems([""]+[field.name() for field in self.layerstor.temppnktlyr.fields()])
         self.dlg.flds_cb.currentIndexChanged.connect(self.loadAttributes)
-        QgsProject.instance().addMapLayer(self.layerstor.temppnktlyr)
+        #QgsProject.instance().addMapLayer(self.layerstor.temppnktlyr)
+
+
+    def createRasterPoints(self, rectangle, dist):
+        height = rectangle.height()
+        width = rectangle.width()
+        nheight = int(height/dist)
+        nwidth = int(width/dist)
+        self.layerstor.temprasterpunktlyr = QgsVectorLayer('Point?crs=%s' % self.crsstor.dest_crs.authid(), 'rastertemp', 'memory')
+        tempprovider = self.layerstor.temprasterpunktlyr.dataProvider()
+        self.layerstor.temprasterpunktlyr.updateFields()
+        self.layerstor.temprasterpunktlyr.startEditing()
+        xmin = rectangle.xMinimum()
+        ymin = rectangle.yMinimum()
+        for xn in range(nwidth+1):
+            for yn in range(nheight+1):
+                nwFeature = QgsFeature()
+                nwFeature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(xn*dist+xmin,yn*dist+ymin)))
+                self.layerstor.temprasterpunktlyr.addFeature(nwFeature)
+        self.layerstor.temprasterpunktlyr.commitChanges()
+        self.layerstor.temprasterpunktlyr.updateExtents()
+        QgsProject.instance().addMapLayer(self.layerstor.temprasterpunktlyr)
+
 
 
     def loadAttributes(self):
         field = self.dlg.flds_cb.currentText()
         fieldslist = []
         currentExtent = self.iface.mapCanvas().extent()
-
+        self.createRasterPoints(currentExtent, 20)
         print(self.iface.mapCanvas().extent())
         i = 0
         for feature in self.layerstor.temppnktlyr.getFeatures():
@@ -236,11 +258,15 @@ class HeatMap_PointExtracter:
         print(fieldslist)
         fieldslist.sort()
         self.dlg.attribute_tw.setColumnCount(2)
+        self.dlg.attribute_tw.setColumnWidth(0,int(self.dlg.attribute_tw.width()*0.6))
+        self.dlg.attribute_tw.setColumnWidth(1,int(self.dlg.attribute_tw.width()*0.35))
+        print(self.dlg.attribute_tw.width())
         self.dlg.attribute_tw.setRowCount(len(fieldslist)+1)
         self.dlg.attribute_tw.setItem(0,0,QTableWidgetItem("Attribute"))
+        self.dlg.attribute_tw.setItem(0,1,QTableWidgetItem("Wertigkeit"))
         for r, attr in enumerate(fieldslist):
             itm = QTableWidgetItem(attr)
-            itm.setFlags(Qt.ItemIsEnabled)
+            itm.setFlags(Qt.ItemIsEnabled) # can be changed
             self.dlg.attribute_tw.setItem(r+1,0,itm)
             self.dlg.attribute_tw.setItem(r+1,1,QTableWidgetItem("1"))
         
@@ -248,7 +274,9 @@ class HeatMap_PointExtracter:
     def run(self):
         """Run method that performs all the real work"""
         class layerstorage():
-            name = "test"
+            name = "class"
+        class crsstorage():
+            name = "class"
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
@@ -265,6 +293,7 @@ class HeatMap_PointExtracter:
         self.dlg.flds_cb.currentIndexChanged.connect(self.loadAttributes)
         
         self.layerstor = layerstorage()
+        self.crsstor = crsstorage()
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
