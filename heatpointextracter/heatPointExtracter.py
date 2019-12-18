@@ -244,31 +244,44 @@ class HeatMap_PointExtracter:
         currentExtent = self.iface.mapCanvas().extent()
         self.createRasterPoints(currentExtent, 20)
         print(self.iface.mapCanvas().extent())
-        i = 0
+        # Populate lyr_in_extent and fieldlist
+        self.layerstor.punktlyr_in_extent = QgsVectorLayer('Point?crs=%s' % self.crsstor.dest_crs.authid(), 'lyr_in_extent', 'memory')
+        tempprovider = self.layerstor.punktlyr_in_extent.dataProvider()
+        tempprovider.addAttributes(self.layerstor.pnktlyr.fields())
+        self.layerstor.punktlyr_in_extent.updateFields()
+        self.layerstor.punktlyr_in_extent.startEditing()
         for feature in self.layerstor.temppnktlyr.getFeatures():
-            i=i+1
             if currentExtent.contains(feature.geometry().asPoint()):
                 if feature[field] not in fieldslist:
                     fieldslist.append(feature[field])
-                i = i+1
-            # if i == 30:
-            #     break
-            # if feature[field] not in fieldslist:
-            #     fieldslist.append(feature[field])
-        print(fieldslist)
+                nwFeature = QgsFeature()
+                nwFeature.setAttributes(feature.attributes())
+                nwFeature.setGeometry(feature.geometry())
+                self.layerstor.punktlyr_in_extent.addFeature(nwFeature)
+        self.layerstor.punktlyr_in_extent.commitChanges()
+        self.layerstor.punktlyr_in_extent.updateExtents()
+        QgsProject.instance().addMapLayer(self.layerstor.punktlyr_in_extent)
         fieldslist.sort()
         self.dlg.attribute_tw.setColumnCount(2)
-        self.dlg.attribute_tw.setColumnWidth(0,int(self.dlg.attribute_tw.width()*0.6))
+        self.dlg.attribute_tw.setColumnWidth(0,int(self.dlg.attribute_tw.width()*0.55))
         self.dlg.attribute_tw.setColumnWidth(1,int(self.dlg.attribute_tw.width()*0.35))
         print(self.dlg.attribute_tw.width())
         self.dlg.attribute_tw.setRowCount(len(fieldslist)+1)
-        self.dlg.attribute_tw.setItem(0,0,QTableWidgetItem("Attribute"))
-        self.dlg.attribute_tw.setItem(0,1,QTableWidgetItem("Wertigkeit"))
+        itm = QTableWidgetItem("Attribute")
+        itm.setFlags(Qt.ItemIsEnabled)
+        self.dlg.attribute_tw.setItem(0,0,itm)
+        itm = QTableWidgetItem("Wertigkeit")
+        itm.setFlags(Qt.ItemIsEnabled)
+        self.dlg.attribute_tw.setItem(0,1,itm)
         for r, attr in enumerate(fieldslist):
             itm = QTableWidgetItem(attr)
             itm.setFlags(Qt.ItemIsEnabled) # can be changed
             self.dlg.attribute_tw.setItem(r+1,0,itm)
             self.dlg.attribute_tw.setItem(r+1,1,QTableWidgetItem("1"))
+        
+    def calc(self):
+        pass
+
         
 
     def run(self):
@@ -291,7 +304,7 @@ class HeatMap_PointExtracter:
 
         self.dlg.pnktlyr_cb.currentIndexChanged.connect(self.loadColumn)
         self.dlg.flds_cb.currentIndexChanged.connect(self.loadAttributes)
-        
+        self.dlg.run_pb.clicked.connect(self.calc)
         self.layerstor = layerstorage()
         self.crsstor = crsstorage()
         # show the dialog
