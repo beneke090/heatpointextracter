@@ -24,7 +24,7 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QTableWidgetItem, QDialog, QPushButton, QComboBox, QListWidget
-from qgis.core import QgsProject, QgsCoordinateTransform, QgsVectorLayer, QgsFeature, QgsPointXY, QgsGeometry, QgsRectangle, QgsField
+from qgis.core import QgsProject, QgsCoordinateTransform, QgsVectorLayer, QgsFeature, QgsPointXY, QgsGeometry, QgsRectangle, QgsField, QgsVectorLayerUtils
 import numpy as np
 import time
 import pandas as pd
@@ -229,9 +229,10 @@ class HeatMap_PointExtracter:
         height = rectangle.height()
         width = rectangle.width()
         nheight = int(height/dist)
-        nRectHeight = int(height/(dist*30))
+        rectlist_factor = 30
+        nRectHeight = int(height/(dist*rectlist_factor))
         nwidth = int(width/dist)
-        nRectWidth = int(width/(dist*30))
+        nRectWidth = int(width/(dist*rectlist_factor))
         self.layerstor.temprasterpunktlyr = QgsVectorLayer('Point?crs=%s' % self.crsstor.dest_crs.authid(), 'rastertemp', 'memory')
         tempprovider = self.layerstor.temprasterpunktlyr.dataProvider()
         self.layerstor.temprasterpunktlyr.startEditing()
@@ -253,8 +254,8 @@ class HeatMap_PointExtracter:
         rectlist = []
         for xn in range(nRectWidth+1):
             for yn in range(nRectHeight+1):
-                point_min=QgsPointXY(xn*dist*30+xmin,yn*dist*30+ymin)
-                point_max=QgsPointXY((xn+1)*dist*30+xmin,(yn+1)*dist*30+ymin)
+                point_min=QgsPointXY(xn*dist*rectlist_factor+xmin,yn*dist*rectlist_factor+ymin)
+                point_max=QgsPointXY((xn+1)*dist*rectlist_factor+xmin,(yn+1)*dist*rectlist_factor+ymin)
                 rectlist.append(QgsRectangle(point_min,point_max))
         self.rectlist=rectlist
 
@@ -282,6 +283,42 @@ class HeatMap_PointExtracter:
         fieldslist.sort()
         self.table.firstfill(fieldslist)
 
+    def calc_charger(self):
+        self.layerstor.chargerloclyr = QgsVectorLayer('Point?crs=%s' % self.crsstor.dest_crs.authid(), 'proposed Charger locations', 'memory')
+        tempprovider = self.layerstor.chargerloclyr.dataProvider()
+        self.layerstor.chargerloclyr.startEditing()
+        tempprovider.addAttributes([QgsField("rank",QVariant.Double, "double", 10, 3)])
+        self.layerstor.chargerloclyr.commitChanges()
+        self.layerstor.chargerloclyr.startEditing()
+        desired_n = int(self.dlg.n_charStations_le.text())
+        min_distance = int(self.dlg.min_distance_le.text())
+        excluded_area_list = [] # wenn ein Punkt gefunden wird, wird ein buffer mit mindest abstand drumgelegt, der kreis wird hier rein gelegt und alle punkte die in dem drin liegen , werden anschließend ignoriert
+        class p_feature():
+            def __init__(self,feature):
+                self.feature = feature
+            def __lt__(self, other):
+                return(self.feature["score"] < other.feature["score"])
+        feature_list= []
+        for f in self.layerstor.temprasterpunktlyr.getFeatures():
+            feature_list.append(p_feature(f))
+        feature_list.sort(reverse=True)
+        defined_positions =0
+        for f in feature_list:
+            if defined_positions == desired_n:
+                break
+            print([buffer.contains(f.feature.geometry().asPoint()) for buffer in excluded_area_list])
+            if sum([buffer.contains(f.feature.geometry().asPoint()) for buffer in excluded_area_list]) ==0:
+                defined_positions +=1
+                excluded_area_list.append(f.feature.geometry().buffer(min_distance,-1))
+                nwFeature = QgsVectorLayerUtils.createFeature(self.layerstor.chargerloclyr)
+                nwFeature.setGeometry(f.feature.geometry())
+                nwFeature["rank"] = defined_positions
+                self.layerstor.chargerloclyr.addFeature(nwFeature)
+        self.layerstor.chargerloclyr.commitChanges()
+        self.layerstor.chargerloclyr.updateExtents()
+        QgsProject.instance().addMapLayer(self.layerstor.chargerloclyr)
+
+
     def calc(self):
         selectedColumn = self.dlg.flds_cb.currentText()
         print(selectedColumn)
@@ -302,12 +339,19 @@ class HeatMap_PointExtracter:
             print(len([point for point in self.layerstor.temprasterpunktlyr.getFeatures() if rect.contains(point.geometry().asPoint())]))
             print(len([point for point in self.layerstor.punktlyr_in_extent.getFeatures() if rect.buffered(observed_distance).contains(point.geometry().asPoint())]))
             for rasterpoint in [point for point in self.layerstor.temprasterpunktlyr.getFeatures() if rect.contains(point.geometry().asPoint())]:
-                value = 0
+                value = 0.0
                 for poipoint in [point for point in self.layerstor.punktlyr_in_extent.getFeatures() if rect.buffered(observed_distance).contains(point.geometry().asPoint())]:
                     if selectedColumn=="":
                         diff = observed_distance - poipoint.geometry().distance(rasterpoint.geometry())
                         if diff > 0:
                             value+=diff
+                    else:
+                        if poipoint[selectedColumn] in self.table.list_arg():
+                            diff = observed_distance - poipoint.geometry().distance(rasterpoint.geometry())
+                            if diff > 0:
+                                value+=diff*self.table.arg_value(poipoint[selectedColumn])
+                                self.table.arg_value(poipoint[selectedColumn])
+
                 dataProvider.changeAttributeValues({rasterpoint.id():{0:value/observed_distance}})
 
 
@@ -321,6 +365,8 @@ class HeatMap_PointExtracter:
         end_time = time.time()
         print("total time taken this loop: ", end_time - start_time)
         print("for %s points" %str(i))
+        self.dlg.n_charStations_le.setEnabled(True)
+        self.dlg.calc_charger_pb.setEnabled(True)
 
 
     def attribute_select_state_changed(self):
@@ -345,16 +391,16 @@ class HeatMap_PointExtracter:
             self.dlg.label_spalte_Selektion.setVisible(True)
             self.dlg.flds_cb.setVisible(True)
             self.dlg.wertigkeit_cb.setVisible(True)
-            self.dlg.setMinimumHeight(690)
-            self.dlg.resize(705,690)
+            self.dlg.setMinimumHeight(800)
+            self.dlg.resize(705,800)
         else:
             self.dlg.attribute_tw.setHidden(True)
             self.dlg.plusminuswidget.setHidden(True)
             self.dlg.label_spalte_Selektion.setHidden(True)
             self.dlg.flds_cb.setHidden(True)
             self.dlg.wertigkeit_cb.setHidden(True)
-            self.dlg.setMinimumHeight(260)
-            self.dlg.resize(705,260)
+            self.dlg.setMinimumHeight(370)
+            self.dlg.resize(705,370)
         
 
     def run(self):
@@ -428,6 +474,12 @@ class HeatMap_PointExtracter:
                 self.tablewidget.itemChanged.disconnect()
                 self.tablewidget.clear()
                 self.tablewidget.itemChanged.connect(self.savetable)
+
+            def list_arg(self):
+                return(list(self.table["Attribute"]))
+            
+            def arg_value(self,arg):
+                return(float(self.table[self.table["Attribute"] == arg]["Wertigkeit"]))
 
             def show_wertigkeit(self,state):
                 self.if_show_wertigkeit = state
@@ -503,6 +555,7 @@ class HeatMap_PointExtracter:
         self.dlg.attribute_select_cb.stateChanged.connect(self.attribute_select_state_changed)
         self.dlg.zwischenergebnisse_cb.stateChanged.connect(self.zwischenergebnisse_state_changed)
         self.dlg.wertigkeit_cb.stateChanged.connect(self.wertigkeit_state_changed)
+        self.dlg.calc_charger_pb.clicked.connect(self.calc_charger)
         self.layerstor = layerstorage()
         self.crsstor = crsstorage()
         self.table = tableview(self.dlg.attribute_tw)
@@ -510,6 +563,9 @@ class HeatMap_PointExtracter:
         self.show_attribute_select(False)
         
         self.show_zwischenergenisse = False
+        #deactivate chargercalc-dialog until Things are calculated
+        self.dlg.n_charStations_le.setEnabled(False)
+        self.dlg.calc_charger_pb.setEnabled(False)
 
         self.dlg.heat_raster_le.setText("20")
         self.dlg.min_distance_le.setText("100")

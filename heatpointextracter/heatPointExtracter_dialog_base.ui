@@ -7,26 +7,19 @@
     <x>0</x>
     <y>0</y>
     <width>705</width>
-    <height>598</height>
+    <height>800</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
     <width>705</width>
-    <height>598</height>
+    <height>800</height>
    </size>
   </property>
   <property name="windowTitle">
    <string>Heatpoint</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
-   <item row="0" column="0">
-    <widget class="QLabel" name="title">
-     <property name="text">
-      <string>TextLabel</string>
-     </property>
-    </widget>
-   </item>
    <item row="2" column="0">
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
@@ -211,12 +204,40 @@
      </item>
     </layout>
    </item>
-   <item row="3" column="0">
-    <widget class="QPushButton" name="run_pb">
+   <item row="0" column="0">
+    <widget class="QLabel" name="title">
      <property name="text">
-      <string>Lauf!</string>
+      <string>TextLabel</string>
      </property>
     </widget>
+   </item>
+   <item row="9" column="0">
+    <layout class="QVBoxLayout" name="verticalLayout_4">
+     <item>
+      <widget class="QPushButton" name="run_pb">
+       <property name="text">
+        <string>Rasterberechnung!</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_2">
+       <property name="text">
+        <string>Anzahl der Ladestationen</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="n_charStations_le"/>
+     </item>
+     <item>
+      <widget class="QPushButton" name="calc_charger_pb">
+       <property name="text">
+        <string>Ladesäulenstandorte vorschlagen</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
   </layout>
  </widget>
